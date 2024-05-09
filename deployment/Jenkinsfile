@@ -1,0 +1,13 @@
+pipeline {
+    agent any{
+        stages{
+            stage('Deploying to Kubernetes') {
+                steps {
+                    script {
+                    kubernetesDeploy(configs: ["deployment/deployment.yaml", "deployment/service.yaml"], kubeconfigId: "G4Kub")
+                    }
+                }
+            }
+        }
+    }
+}
