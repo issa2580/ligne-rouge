@@ -1,53 +1,45 @@
 pipeline {
     environment {
-        SONAR_SCANNER_HOME = '/opt/sonar-scanner-6.0.0.4432-linux'
-        SONAR_HOST_URL = 'http://sonarqube:9000'
-        SONAR_TOKEN = 'sqp_a23d224d500b9c7d48f0e6c3f4e446fa94a79b39'
-        // webDockerImageName = "martinez42/ligne-rouge-web"
-        // dbDockerImageName = "martinez42/ligne-rouge-db"
-        // webDockerImage = ""
-        // dbDockerImage = ""
-        // registryCredential = 'docker-credentiel'
+        webDockerImageName = "martinez42/ligne-rouge-web"
+        dbDockerImageName = "martinez42/ligne-rouge-db"
+        webDockerImage = ""
+        dbDockerImage = ""
+        registryCredential = 'docker-credentiel'
         KUBECONFIG = "/home/rootkit/.kube/config"
         TERRA_DIR  = "/home/rootkit/ligne-rouge/terraform"
-        // ANSIBLE_DIR = "/home/rootkit/ligne-rouge/ansible"
+        ANSIBLE_DIR = "/home/rootkit/ligne-rouge/ansible"
     }
     agent any
     stages {
-        stage('Build Docker images') {
+        stage('Checkout Source') {
+            steps {
+                git 'https://github.com/issa2580/ligne-rouge.git'
+            }
+        }
+        stage('Build Web Docker image') {
             steps {
                 script {
-                    sh 'docker-compose up --build -d'
+                    webDockerImage = docker.build webDockerImageName, "-f App.Dockerfile ."
                 }
             }
         }
-        stage('SonarQube Analysis') {
+        stage('Build DB Docker image') {
             steps {
-                withSonarQubeEnv('SonarQube') {
-                    sh """
-                    ${SONAR_SCANNER_HOME}/bin/sonar-scanner \
-                    -Dsonar.projectKey=file-rouge \
-                    -Dsonar.sources=. \
-                    -Dsonar.host.url=${SONAR_HOST_URL} \
-                    -Dsonar.login=${SONAR_TOKEN}
-                    """
+                script {
+                    dbDockerImage = docker.build dbDockerImageName, "-f Db.Dockerfile ."
                 }
             }
         }
-    //    stage('Pushing Images to Docker Registry') {
-    //         steps {
-    //             script {
-    //                 def dockerRegistry = "https://registry.hub.docker.com/"
-    //                 def dockerUsername = "martinez42"
-    //                 def dockerPassword = "Passer@4221"
-    //                 sh "docker login $dockerRegistry -u $dockerUsername -p $dockerPassword"
-    //                 sh "docker push ligne-rouge_master-web:latest"
-    //                 sh "docker push ligne-rouge_master-sonarqube:latest"
-    //                 sh "docker push ligne-rouge_master-postgres:latest"
-    //                 sh "docker push ligne-rouge_master-db:latest"
-    //             }
-    //         }
-    //     }
+        stage('Pushing Images to Docker Registry') {
+            steps {
+                script {
+                    docker.withRegistry('https://registry.hub.docker.com', registryCredential) {
+                        webDockerImage.push('latest')
+                        dbDockerImage.push('latest')
+                    }
+                }
+            }
+        }
         stage("Provision Kubernetes Cluster with Terraform") {
             steps {
                 script {
@@ -60,27 +52,26 @@ pipeline {
                 }
             }
         }
-        // stage('Install Python dependencies and Deploy with Ansible') {
-        //     steps {
-        //         script {
-        //             sh """
-        //             sudo apt-get install -y python3-venv
-        //             cd ${ANSIBLE_DIR}
-        //             sudo python3 -m venv venv
-        //             . venv/bin/activate
-        //             pip install kubernetes ansible
-        //             ansible-playbook ${ANSIBLE_DIR}/playbook.yml
-        //             """
-        //         }
-        //     }
-        // }
+        stage('Install Python dependencies and Deploy with Ansible') {
+            steps {
+                script {
+                    sh """
+                    sudo apt-get install -y python3-venv
+                    cd ${ANSIBLE_DIR}
+                    sudo python3 -m venv venv
+                    . venv/bin/activate
+                    pip install kubernetes ansible
+                    ansible-playbook ${ANSIBLE_DIR}/playbook.yml
+                    """
+                }
+            }
+        }
     }
-    // post {
-    //     success {
-    //         slackSend channel: 'groupe4', message: 'Success to deploy'
-    //     }
-    //     failure {
-    //         slackSend channel: 'groupe4', message: 'Failed to deploy'
-    //     }
-    // }
-}
+    post {
+        success {
+            slackSend channel: 'groupe4', message: 'Success to deploy'
+        }
+        failure {
+            slackSend channel: 'groupe4', message: 'Failed to deploy'
+        }
+    }
